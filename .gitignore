@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# Just in case
+*.swp
+*~
+.idea/
+
+# Python 
+__pycache__/
+.venv/
+
+# Divers
+node_modules/
+.env
