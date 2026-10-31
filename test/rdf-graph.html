@@ -4,15 +4,15 @@
 <meta charset="utf-8">
 <title>RDF graph</title>
 <script src="https://unpkg.com/n3/browser/n3.min.js"></script>
-<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
 <style>
   html, body { margin: 0; height: 100%; font-family: sans-serif; background: #fff; }
     #graph { position: absolute; inset: 0; }
-      #panel { position: absolute; top: 8px; left: 8px; font-size: 12px; background: rgba(255,255,255,.92);
+      #panel { position: absolute; top: 8px; left: 8px; z-index: 10; font-size: 12px; background: rgba(255,255,255,.92);
                  padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; line-height: 1.7; }
                    .sw { display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: middle; border: 1px solid #888; }
                      .round { border-radius: 50%; }
-                       button { margin-top: 4px; font-size: 12px; cursor: pointer; }
+                       button, select { margin-top: 4px; font-size: 12px; cursor: pointer; }
                        </style>
                        </head>
                        <body>
@@ -21,99 +21,129 @@
                          <div><span class="sw round" style="background:#fcd581"></span>Classe</div>
                            <div><span class="sw round" style="background:#a8d1ff"></span>Instance</div>
                              <div><span class="sw" style="background:#f1f1f1"></span>Littéral</div>
-                               <button id="fit">Recentrer</button>
-                               </div>
+                               <select id="layout">
+                                   <option value="cose">Organique</option>
+                                       <option value="breadthfirst">Arbre</option>
+                                           <option value="circle">Cercle</option>
+                                               <option value="concentric">Concentrique</option>
+                                                   <option value="grid">Grille</option>
+                                                     </select><br>
+                                                       <button id="fit">Recentrer</button>
+                                                         <button id="reset">Réinitialiser</button>
+                                                         </div>
 
-                               <script>
-                               const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+                                                         <script>
+                                                         const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
 
-                               const STYLE = {
-                               	  class:    { shape: 'ellipse', color: { background: '#fcd581', border: '#d4a017' } },
-                               	    instance: { shape: 'ellipse', color: { background: '#a8d1ff', border: '#3b82c4' } },
-                               	      literal:  { shape: 'box', color: { background: '#f1f1f1', border: '#9a9a9a' }, widthConstraint: { maximum: 170 } },
-                               	      };
-                               	      const EDGE = {
-                               	      	  type:   { dashes: true, color: { color: '#d4a017' } },
-                               	      	    object: { color: { color: '#3b82c4' } },
-                               	      	      data:   { color: { color: '#9a9a9a' } },
-                               	      	      };
+                                                         function parseTurtle(ttl) {
+                                                           return new Promise((resolve, reject) => {
+                                                               const quads = [];
+                                                                   new N3.Parser().parse(ttl, (err, quad, prefixes) => {
+                                                                         if (err) return reject(err);
+                                                                               if (quad) quads.push(quad);
+                                                                                     else resolve({ quads, prefixes: prefixes || {} });
+                                                                                         });
+                                                                                           });
+                                                                                           }
 
-                               	      	      function parseTurtle(ttl) {
-                               	      	      	  return new Promise((resolve, reject) => {
-                               	      	      	  	    const quads = [];
-                               	      	      	  	        new N3.Parser().parse(ttl, (err, quad, prefixes) => {
-                               	      	      	  	        	      if (err) return reject(err);
-                               	      	      	  	        	            if (quad) quads.push(quad);
-                               	      	      	  	        	                  else resolve({ quads, prefixes: prefixes || {} });
-                               	      	      	  	        	                      });
-                               	      	      	  	        	                        });
-                               	      	      	  	        	                        }
+                                                                                           // Taille approximative des nœuds selon la longueur du texte
+                                                                                           const MAXW = 170, CHARW = 7.5;
+                                                                                           const nodeW = n => Math.min(n.data('label').length * CHARW, MAXW) + 24;
+                                                                                           const nodeH = n => 20 * Math.ceil(n.data('label').length * CHARW / MAXW) + 14;
 
-                               	      	      	  	        	                        async function main() {
-                               	      	      	  	        	                        	  const src = new URLSearchParams(location.search).get('src') || 'graph.ttl';
-                               	      	      	  	        	                        	    const resp = await fetch(src);
-                               	      	      	  	        	                        	      if (!resp.ok) throw new Error('Impossible de charger ' + src);
-                               	      	      	  	        	                        	        const { quads, prefixes } = await parseTurtle(await resp.text());
+                                                                                           async function main() {
+                                                                                             const src = new URLSearchParams(location.search).get('src') || 'graph.ttl';
+                                                                                               const resp = await fetch(src);
+                                                                                                 if (!resp.ok) throw new Error('Impossible de charger ' + src);
+                                                                                                   const { quads, prefixes } = await parseTurtle(await resp.text());
 
-                               	      	      	  	        	                        	          const ns = { rdf: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#' };
-                               	      	      	  	        	                        	            for (const [p, v] of Object.entries(prefixes)) ns[p] = typeof v === 'string' ? v : v.value;
-                               	      	      	  	        	                        	              const short = iri => {
-                               	      	      	  	        	                        	              	    for (const [p, base] of Object.entries(ns)) if (iri.startsWith(base)) return p + ':' + iri.slice(base.length);
-                               	      	      	  	        	                        	              	        return iri;
-                               	      	      	  	        	                        	              	          };
+                                                                                                     const ns = { rdf: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#' };
+                                                                                                       for (const [p, v] of Object.entries(prefixes)) ns[p] = typeof v === 'string' ? v : v.value;
+                                                                                                         const short = iri => {
+                                                                                                             for (const [p, base] of Object.entries(ns)) if (iri.startsWith(base)) return p + ':' + iri.slice(base.length);
+                                                                                                                 return iri;
+                                                                                                                   };
 
-                               	      	      	  	        	                        	              	            const classes = new Set(quads.filter(q => q.predicate.value === RDF_TYPE).map(q => q.object.value));
-                               	      	      	  	        	                        	              	              const nodes = new vis.DataSet(), edges = new vis.DataSet();
+                                                                                                                     const classes = new Set(quads.filter(q => q.predicate.value === RDF_TYPE).map(q => q.object.value));
+                                                                                                                       const elements = [], seen = new Set();
 
-                               	      	      	  	        	                        	              	                const node = term => {
-                               	      	      	  	        	                        	              	                	    const id = term.termType === 'BlankNode' ? '_:' + term.value : term.value;
-                               	      	      	  	        	                        	              	                	        if (!nodes.get(id)) {
-                               	      	      	  	        	                        	              	                	        	      const kind = classes.has(term.value) ? 'class' : 'instance';
-                               	      	      	  	        	                        	              	                	        	            nodes.add({ id, label: term.termType === 'BlankNode' ? id : short(id), title: id, ...STYLE[kind] });
-                               	      	      	  	        	                        	              	                	        	                }
-                               	      	      	  	        	                        	              	                	        	                    return id;
-                               	      	      	  	        	                        	              	                	        	                      };
+                                                                                                                         const node = term => {
+                                                                                                                             const id = term.termType === 'BlankNode' ? '_:' + term.value : term.value;
+                                                                                                                                 if (!seen.has(id)) {
+                                                                                                                                       seen.add(id);
+                                                                                                                                             const kind = classes.has(term.value) ? 'class' : 'instance';
+                                                                                                                                                   elements.push({ data: { id, label: term.termType === 'BlankNode' ? id : short(id), kind } });
+                                                                                                                                                       }
+                                                                                                                                                           return id;
+                                                                                                                                                             };
 
-                               	      	      	  	        	                        	              	                	        	                        quads.forEach((q, i) => {
-                               	      	      	  	        	                        	              	                	        	                        	    const from = node(q.subject);
-                               	      	      	  	        	                        	              	                	        	                        	        let to, kind;
-                               	      	      	  	        	                        	              	                	        	                        	            if (q.object.termType === 'Literal') {
-                               	      	      	  	        	                        	              	                	        	                        	            	      to = 'literal-' + i;
-                               	      	      	  	        	                        	              	                	        	                        	            	            nodes.add({ id: to, label: q.object.value, title: short(q.object.datatype.value), ...STYLE.literal });
-                               	      	      	  	        	                        	              	                	        	                        	            	                  kind = 'data';
-                               	      	      	  	        	                        	              	                	        	                        	            	                      } else {
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	      to = node(q.object);
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	            kind = q.predicate.value === RDF_TYPE ? 'type' : 'object';
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                }
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                    edges.add({ from, to, label: short(q.predicate.value), ...EDGE[kind] });
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                      });
+                                                                                                                                                               quads.forEach((q, i) => {
+                                                                                                                                                                   const source = node(q.subject);
+                                                                                                                                                                       let target, kind;
+                                                                                                                                                                           if (q.object.termType === 'Literal') {
+                                                                                                                                                                                 target = 'literal-' + i;
+                                                                                                                                                                                       elements.push({ data: { id: target, label: q.object.value, kind: 'literal' } });
+                                                                                                                                                                                             kind = 'data';
+                                                                                                                                                                                                 } else {
+                                                                                                                                                                                                       target = node(q.object);
+                                                                                                                                                                                                             kind = q.predicate.value === RDF_TYPE ? 'type' : 'object';
+                                                                                                                                                                                                                 }
+                                                                                                                                                                                                                     elements.push({ data: { id: 'edge-' + i, source, target, label: short(q.predicate.value), kind } });
+                                                                                                                                                                                                                       });
 
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        const network = new vis.Network(document.getElementById('graph'), { nodes, edges }, {
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	    nodes: { font: { size: 14 }, margin: 8 },
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	        edges: { arrows: 'to', font: { size: 11, align: 'middle', background: 'white' }, smooth: { type: 'dynamic' } },
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	            physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { springLength: 110 }, stabilization: { iterations: 300 } },
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                interaction: { hover: true },
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                  });
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                    document.getElementById('fit').onclick = () => network.fit();
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                    }
+                                                                                                                                                                                                                         const cy = cytoscape({
+                                                                                                                                                                                                                             container: document.getElementById('graph'),
+                                                                                                                                                                                                                                 elements,
+                                                                                                                                                                                                                                     style: [
+                                                                                                                                                                                                                                           { selector: 'node', style: {
+                                                                                                                                                                                                                                                     'label': 'data(label)', 'font-size': 13, 'text-valign': 'center', 'text-halign': 'center',
+                                                                                                                                                                                                                                                               'text-wrap': 'wrap', 'text-max-width': MAXW, 'width': nodeW, 'height': nodeH, 'border-width': 1.5 } },
+                                                                                                                                                                                                                                                                     { selector: 'node[kind = "class"]',    style: { 'shape': 'ellipse', 'background-color': '#fcd581', 'border-color': '#d4a017' } },
+                                                                                                                                                                                                                                                                           { selector: 'node[kind = "instance"]', style: { 'shape': 'ellipse', 'background-color': '#a8d1ff', 'border-color': '#3b82c4' } },
+                                                                                                                                                                                                                                                                                 { selector: 'node[kind = "literal"]',  style: { 'shape': 'round-rectangle', 'background-color': '#f1f1f1', 'border-color': '#9a9a9a' } },
+                                                                                                                                                                                                                                                                                       { selector: 'edge', style: {
+                                                                                                                                                                                                                                                                                                 'label': 'data(label)', 'font-size': 11, 'curve-style': 'bezier', 'width': 1.5,
+                                                                                                                                                                                                                                                                                                           'target-arrow-shape': 'triangle', 'text-rotation': 'autorotate',
+                                                                                                                                                                                                                                                                                                                     'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2 } },
+                                                                                                                                                                                                                                                                                                                           { selector: 'edge[kind = "type"]',   style: { 'line-style': 'dashed', 'line-color': '#d4a017', 'target-arrow-color': '#d4a017' } },
+                                                                                                                                                                                                                                                                                                                                 { selector: 'edge[kind = "object"]', style: { 'line-color': '#3b82c4', 'target-arrow-color': '#3b82c4' } },
+                                                                                                                                                                                                                                                                                                                                       { selector: 'edge[kind = "data"]',   style: { 'line-color': '#9a9a9a', 'target-arrow-color': '#9a9a9a' } },
+                                                                                                                                                                                                                                                                                                                                           ],
+                                                                                                                                                                                                                                                                                                                                             });
 
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                    main().catch(e => {
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                    	  document.getElementById('graph').innerHTML = '<p style="color:#c00;padding:60px 20px">' + e.message + '</p>';
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                    	  });
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                    	  </script>
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                    	  </body>
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                    	  </html>
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        	                    })
-                               	      	      	  	        	                        	              	                	        	                        	            	                      	                        })
-                               	      	      	  	        	                        	              	                	        	                        	            	                      }
-                               	      	      	  	        	                        	              	                	        	                        	            }
-                               	      	      	  	        	                        	              	                	        	                        })
-                               	      	      	  	        	                        	              	                	        }
-                               	      	      	  	        	                        	              	                }
-                               	      	      	  	        	                        	              }
-                               	      	      	  	        	                        }
-                               	      	      	  	        })
-                               	      	      	  })
-                               	      	      }
-                               	      }
-                               }
+                                                                                                                                                                                                                                                                                                                                               // Mémorisation des positions (par fichier .ttl)
+                                                                                                                                                                                                                                                                                                                                                 const KEY = 'rdf-positions:' + src;
+                                                                                                                                                                                                                                                                                                                                                   const save = () => {
+                                                                                                                                                                                                                                                                                                                                                       const pos = {};
+                                                                                                                                                                                                                                                                                                                                                           cy.nodes().forEach(n => { pos[n.id()] = n.position(); });
+                                                                                                                                                                                                                                                                                                                                                               try { localStorage.setItem(KEY, JSON.stringify(pos)); } catch (e) {}
+                                                                                                                                                                                                                                                                                                                                                                 };
+                                                                                                                                                                                                                                                                                                                                                                   const runLayout = name => {
+                                                                                                                                                                                                                                                                                                                                                                       cy.layout({ name, animate: false, padding: 30, idealEdgeLength: 120, nodeRepulsion: 9000, spacingFactor: 1.2 }).run();
+                                                                                                                                                                                                                                                                                                                                                                           save();
+                                                                                                                                                                                                                                                                                                                                                                             };
+
+                                                                                                                                                                                                                                                                                                                                                                               let saved = null;
+                                                                                                                                                                                                                                                                                                                                                                                 try { saved = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+                                                                                                                                                                                                                                                                                                                                                                                   if (saved && cy.nodes().every(n => saved[n.id()])) {
+                                                                                                                                                                                                                                                                                                                                                                                       cy.layout({ name: 'preset', positions: n => saved[n.id()], padding: 30 }).run();
+                                                                                                                                                                                                                                                                                                                                                                                         } else {
+                                                                                                                                                                                                                                                                                                                                                                                             runLayout('cose');
+                                                                                                                                                                                                                                                                                                                                                                                               }
+
+                                                                                                                                                                                                                                                                                                                                                                                                 cy.on('dragfree', 'node', save);
+                                                                                                                                                                                                                                                                                                                                                                                                   document.getElementById('layout').onchange = e => runLayout(e.target.value);
+                                                                                                                                                                                                                                                                                                                                                                                                     document.getElementById('fit').onclick = () => cy.fit(undefined, 30);
+                                                                                                                                                                                                                                                                                                                                                                                                       document.getElementById('reset').onclick = () => {
+                                                                                                                                                                                                                                                                                                                                                                                                           try { localStorage.removeItem(KEY); } catch (e) {}
+                                                                                                                                                                                                                                                                                                                                                                                                               document.getElementById('layout').value = 'cose';
+                                                                                                                                                                                                                                                                                                                                                                                                                   runLayout('cose');
+                                                                                                                                                                                                                                                                                                                                                                                                                     };
+                                                                                                                                                                                                                                                                                                                                                                                                                     }
+
+                                                                                                                                                                                                                                                                                                                                                                                                                     main().catch(e => {
+                                                                                                                                                                                                                                                                                                                                                                                                                       document.getElementById('graph').innerHTML = '<p style="color:#c00;padding:120px 20px">' + e.message + '</p>';
+                                                                                                                                                                                                                                                                                                                                                                                                                       });
+                                                                                                                                                                                                                                                                                                                                                                                                                       </script>
+                                                                                                                                                                                                                                                                                                                                                                                                                       </body>
+                                                                                                                                                                                                                                                                                                                                                                                                                       </html>201~200~<!DOCTYPE html>
