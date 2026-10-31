@@ -1,0 +1,64 @@
+@prefix rml:    <http://w3id.org/rml/> .
+@prefix rdfs:   <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+@prefix schema: <https://schema.org/> .
+
+# --- Classes RML IO -------------------------------------------------------
+rml:LogicalSource        a rdfs:Class .
+rml:Source               a rdfs:Class .
+rml:ReferenceFormulation a rdfs:Class .
+rml:Encoding             a rdfs:Class .
+rml:Compression          a rdfs:Class .
+
+# --- Classes RML Core et hiérarchie ---------------------------------------
+rml:TriplesMap         a rdfs:Class .
+rml:PredicateObjectMap a rdfs:Class .
+rml:RefObjectMap       a rdfs:Class .
+rml:Join               a rdfs:Class .
+rml:ExpressionMap      a rdfs:Class .
+
+rml:TermMap     rdfs:subClassOf rml:ExpressionMap .
+rml:ParentMap   rdfs:subClassOf rml:ExpressionMap .
+rml:ChildMap    rdfs:subClassOf rml:ExpressionMap .
+rml:SubjectMap  rdfs:subClassOf rml:TermMap .
+rml:PredicateMap rdfs:subClassOf rml:TermMap .
+rml:ObjectMap   rdfs:subClassOf rml:TermMap .
+rml:GraphMap    rdfs:subClassOf rml:TermMap .
+rml:LanguageMap rdfs:subClassOf rml:TermMap .
+rml:DatatypeMap rdfs:subClassOf rml:TermMap .
+
+# --- TriplesMap -----------------------------------------------------------
+rml:logicalSource      rdfs:domain rml:TriplesMap ; rdfs:range rml:LogicalSource .
+rml:subjectMap         rdfs:domain rml:TriplesMap ; rdfs:range rml:SubjectMap .
+rml:predicateObjectMap rdfs:domain rml:TriplesMap ; rdfs:range rml:PredicateObjectMap .
+
+# --- LogicalSource et Source ----------------------------------------------
+rml:referenceFormulation rdfs:domain rml:LogicalSource ; rdfs:range rml:ReferenceFormulation .
+rml:iterator             rdfs:domain rml:LogicalSource ; rdfs:range rdfs:Literal .
+rml:source               rdfs:domain rml:LogicalSource ; rdfs:range rml:Source .
+rml:encoding             rdfs:domain rml:Source ; rdfs:range rml:Encoding .
+rml:compression          rdfs:domain rml:Source ; rdfs:range rml:Compression .
+rml:null                 rdfs:domain rml:Source ; rdfs:range rdfs:Literal .
+
+# --- SubjectMap et PredicateObjectMap -------------------------------------
+rml:class        rdfs:domain rml:SubjectMap ; rdfs:range rdfs:Class .
+rml:graphMap     schema:domainIncludes rml:SubjectMap, rml:PredicateObjectMap ;
+                 rdfs:range rml:GraphMap .
+                 rml:predicateMap rdfs:domain rml:PredicateObjectMap ; rdfs:range rml:PredicateMap .
+                 rml:objectMap    rdfs:domain rml:PredicateObjectMap ;
+                                  schema:rangeIncludes rml:ObjectMap, rml:RefObjectMap .
+
+                                  # --- ObjectMap ------------------------------------------------------------
+                                  rml:languageMap rdfs:domain rml:ObjectMap ; rdfs:range rml:LanguageMap .
+                                  rml:datatypeMap rdfs:domain rml:ObjectMap ; rdfs:range rml:DatatypeMap .
+
+                                  # --- RefObjectMap et Join -------------------------------------------------
+                                  rml:parentTriplesMap rdfs:domain rml:RefObjectMap ; rdfs:range rml:TriplesMap .
+                                  rml:joinCondition    rdfs:domain rml:RefObjectMap ; rdfs:range rml:Join .
+                                  rml:parentMap        rdfs:domain rml:Join ; rdfs:range rml:ParentMap .
+                                  rml:childMap         rdfs:domain rml:Join ; rdfs:range rml:ChildMap .
+
+                                  # --- ExpressionMap : template, reference ou constant ----------------------
+                                  rml:template  rdfs:domain rml:ExpressionMap ; rdfs:range xsd:string .
+                                  rml:reference rdfs:domain rml:ExpressionMap ; rdfs:range xsd:string .
+                                  rml:constant  rdfs:domain rml:ExpressionMap ; rdfs:range rdfs:Resource .
