@@ -375,10 +375,10 @@
       hint.className = 'legend-hint';
       hint.textContent = 'Survol : mettre en évidence · clic sur un préfixe : filtrer · glisser l’en-tête : déplacer';
       legendContent.appendChild(hint);
-      const counter = document.createElement('div');
-      counter.className = 'legend-hint';
-      counter.textContent = `${quads.length} triplets · ${cy.nodes().length} nœuds`;
-      legendContent.appendChild(counter);
+      const stats = document.createElement('div');
+      stats.className = 'legend-hint';
+      stats.textContent = `${quads.length} triplets · ${cy.nodes().length} nœuds`;
+      legendContent.appendChild(stats);
       legendPosition.clamp();
 
       // Mémorisation des positions (par fichier .ttl)

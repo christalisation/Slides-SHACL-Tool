@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>SHACL form demo</title>
+    <!--
+      Live <shacl-form> inside a slide, embedded like rdf-graph.html:
+        <iframe src="test/form.html?shapes=books-shapes.ttl"></iframe>
+
+      Parameters (paths relative to this folder):
+        shapes     one or more Turtle files, comma-separated (required)
+        values     an existing data graph to load (optional)
+        subject    root NodeShape IRI, if several roots are possible (optional)
+        ns         namespace for generated IRIs (default http://example.org/)
+        output     "0" to hide the Turtle panel at start
+
+      The component is NOT loaded from a CDN: the fork is not published.
+      Build it once in darmstadt-shacl-form:
+        npm run build-default
+      then copy dist/form-default.js to ../asset/shacl-form/form-default.js
+      (plus any chunk files vite writes next to it).
+      Serve the slides over http (e.g. `npx serve .`), not file://.
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #fff; color: #354046;
+        font-family: 'Roboto', 'Segoe UI', sans-serif; font-weight: 300; font-size: 14px; }
+      body { display: grid; grid-template-columns: 1fr 1fr; }
+      body.no-output { grid-template-columns: 1fr; }
+      body.no-output #output { display: none; }
+      #form-pane, #output { overflow: auto; padding: 12px 16px; box-sizing: border-box; height: 100%; }
+      #output { background: #f5f7fa; border-left: 1px solid #e2e2e2; }
+      #output pre { margin: 0; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+      #output.valid { border-left: 4px solid #28a745; }
+      #output.invalid { border-left: 4px solid #dc3545; }
+      #bar { position: fixed; right: 8px; bottom: 8px; z-index: 10; }
+      button { font: inherit; font-size: 12px; cursor: pointer; color: #354046;
+        background: #EDEAF8; border: 1px solid #c9c3e6; border-radius: 4px; padding: 2px 8px; }
+      .error { color: #721c24; background: rgba(220,53,69,.08); border-left: 4px solid #dc3545; padding: 1em; }
+    </style>
+  </head>
+  <body>
+    <div id="form-pane"><shacl-form id="form"></shacl-form></div>
+    <div id="output"><pre id="rdf">Fill the form: the RDF appears here.</pre></div>
+    <div id="bar"><button id="toggle">Hide RDF</button></div>
+
+    <script type="module">
+      const params = new URLSearchParams(location.search);
+      const form = document.getElementById('form');
+      const rdf = document.getElementById('rdf');
+      const out = document.getElementById('output');
+      const toggle = document.getElementById('toggle');
+
+      function fail(msg) {
+        document.getElementById('form-pane').innerHTML = `<p class="error">${msg}</p>`;
+      }
+
+      function setOutputVisible(visible) {
+        document.body.classList.toggle('no-output', !visible);
+        toggle.textContent = visible ? 'Hide RDF' : 'Show RDF';
+      }
+      setOutputVisible(params.get('output') !== '0');
+      toggle.addEventListener('click', () =>
+        setOutputVisible(document.body.classList.contains('no-output')));
+
+      try {
+        await import('../asset/shacl-form/form-default.js');
+      } catch (e) {
+        fail('Form bundle not found: build darmstadt-shacl-form (npm run build-default) and copy dist/form-default.js to asset/shacl-form/.');
+        throw e;
+      }
+
+      const shapeFiles = (params.get('shapes') || '').split(',').filter(Boolean);
+      if (!shapeFiles.length) fail('Missing ?shapes=… parameter.');
+
+      const fetchText = f => fetch(f).then(r => {
+        if (!r.ok) throw new Error(`${f}: ${r.status}`);
+        return r.text();
+      });
+
+      try {
+        const shapes = (await Promise.all(shapeFiles.map(fetchText))).join('\n\n');
+        form.dataset.valuesNamespace = params.get('ns') || 'http://example.org/';
+        if (params.get('subject')) form.dataset.shapeSubject = params.get('subject');
+        if (params.get('values')) form.dataset.values = await fetchText(params.get('values'));
+        form.dataset.shapes = shapes;
+      } catch (e) {
+        fail(`Could not load shapes: ${e.message}`);
+      }
+
+      form.addEventListener('change', event => {
+        rdf.textContent = form.serialize();
+        const valid = event.detail?.valid;
+        out.classList.toggle('valid', valid !== false);
+        out.classList.toggle('invalid', valid === false);
+      });
+    </script>
+  </body>
+</html>

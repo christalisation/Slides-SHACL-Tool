@@ -1,0 +1,38 @@
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:   <http://example.org/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc:   <http://purl.org/dc/elements/1.1/> .
+
+# Same vocabulary as books.ttl, so the graph shown earlier
+# is valid against these shapes.
+
+ex:BookShape a sh:NodeShape ;
+    rdfs:label "Book" ;
+    sh:targetClass dc:BibliographicResource ;
+    sh:property [
+        sh:path dc:title ;
+        sh:name "title" ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path dc:creator ;
+        sh:name "creator" ;
+        sh:class foaf:Person ;
+        sh:node ex:PersonShape ;
+        sh:minCount 1 ;
+    ] .
+
+ex:PersonShape a sh:NodeShape ;
+    rdfs:label "Person" ;
+    sh:targetClass foaf:Person ;
+    sh:property [
+        sh:path foaf:name ;
+        sh:name "name" ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .

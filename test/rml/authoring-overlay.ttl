@@ -1,0 +1,9 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+# RML Authoring adaptation: 
+# bridge shape to allow access to rml:source property during authoring and avoid duplicate shape definitions.
+<http://w3id.org/rml/shapes/RMLLogicalSourceShape>
+    sh:node <http://w3id.org/rml/shapes/RMLAbstractLogicalSourceShape> .
+
+<http://w3id.org/rml/shapes/RMLSourceShape>
+    sh:node <http://w3id.org/rml/shapes/RMLRelativePathSourceShape> .
