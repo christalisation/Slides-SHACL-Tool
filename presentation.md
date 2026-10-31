@@ -13,6 +13,7 @@ However, my work is not on the use of RDF dataset directly, but my era is in the
 <img src="image/presentation/Screenshot 2026-10-31 at 14.44.25.png" alt="RDF1.1-titre" style="width: 50%;">
 
 TODO: ajouter une intro en plus ?
+La def de KG
 
 ---
 
