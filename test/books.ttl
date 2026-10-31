@@ -1,0 +1,19 @@
+@prefix ex: <http://example.org/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/elements/1.1/> .
+
+ex:J.K._Rowling a foaf:Person ;
+    foaf:name "J.K. Rowling" ;
+    foaf:made ex:Harry_Potter_and_the_Philosophers_Stone .
+
+ex:George_Orwell a foaf:Person ;
+    foaf:name "George Orwell" ;
+    foaf:made ex:1984 .
+
+ex:Harry_Potter_and_the_Philosophers_Stone a dc:BibliographicResource ;
+    dc:title "Harry Potter and the Philosopher's Stone" ;
+    dc:creator ex:J.K._Rowling .
+
+ex:1984 a dc:BibliographicResource ;
+    dc:title "1984" ;
+    dc:creator ex:George_Orwell .
