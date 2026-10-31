@@ -9,9 +9,14 @@
       html, body { margin: 0; height: 100%; background: #fff; color: #354046;
         font-family: 'Roboto', 'Segoe UI', sans-serif; font-weight: 300; }
       #graph { position: absolute; inset: 0; }
-      #panel { position: absolute; top: 8px; left: 8px; z-index: 10; font-size: 12px; line-height: 1.8;
+      #info { display: none; position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+        z-index: 10; max-width: calc(100% - 32px); overflow-wrap: anywhere; font-size: 12px;
+        background: rgba(255,255,255,.94); padding: 6px 10px; border-radius: 6px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+      #legend { position: absolute; top: 8px; left: 8px; z-index: 10; font-size: 12px; line-height: 1.8;
         background: rgba(255,255,255,.94); padding: 8px 12px; border-radius: 6px;
         box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+      .legend-header { cursor: move; user-select: none; touch-action: none; font-weight: 700; }
       .sw { display: inline-block; width: 14px; height: 11px; margin-right: 6px; vertical-align: middle; border-radius: 3px; }
       .ln { display: inline-block; width: 22px; margin-right: 6px; vertical-align: middle; }
       button, select { margin-top: 4px; font: inherit; font-size: 12px; cursor: pointer; color: #354046;
@@ -20,7 +25,9 @@
   </head>
   <body>
     <div id="graph"></div>
-    <div id="panel">
+    <div id="info" aria-live="polite"></div>
+    <div id="legend">
+      <div class="legend-header">Légende (déplacer)</div>
       <div><span class="sw" style="background:#812E2B"></span>Classe</div>
       <div><span class="sw" style="background:#56BDD3"></span>Instance</div>
       <div><span class="sw" style="background:#EDEAF8; border:1px solid #b9b2dd"></span>Littéral / valeur</div>
@@ -62,12 +69,82 @@
       });
     }
 
-    const MAXW = 170, CHARW = 7.8;
-    const nodeW = n => Math.min(n.data('label').length * CHARW, MAXW) + 26;
-    const nodeH = n => 20 * Math.ceil(n.data('label').length * CHARW / MAXW) + 16;
+    const MAXW = 170, FULL_MAXW = 220, PADDING = 26;
+    const MAX = Math.max(1, parseInt(new URLSearchParams(location.search).get('max'), 10) || 24);
+    const shorten = s => s.length > MAX ? s.slice(0, MAX - 1) + '…' : s;
+    const measure = (() => {
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      return (text, size = 13) => {
+        context.font = `${size}px Roboto, Segoe UI, sans-serif`;
+        return context.measureText(text).width;
+      };
+    })();
+    const labelData = (full, fontSize = 13) => {
+      const compact = shorten(full);
+      return {
+        full,
+        short: compact,
+        wFull: Math.min(measure(full, fontSize), FULL_MAXW) + PADDING,
+        wShort: Math.min(measure(compact, fontSize), MAXW) + PADDING,
+        hFull: Math.max(36, 20 * Math.ceil(measure(full, fontSize) / FULL_MAXW) + 16),
+        hShort: Math.max(36, 20 * Math.ceil(measure(compact, fontSize) / MAXW) + 16)
+      };
+    };
+
+    function makeLegendDraggable(SRC) {
+      const legend = document.getElementById('legend');
+      const handle = legend.querySelector('.legend-header');
+      const KEY = 'legend-pos:' + SRC;
+      let moved = false;
+
+      const place = (x, y) => {
+        const r = legend.getBoundingClientRect();
+        x = Math.min(Math.max(0, x), Math.max(0, innerWidth - r.width));
+        y = Math.min(Math.max(0, y), Math.max(0, innerHeight - r.height));
+        Object.assign(legend.style, { left: x + 'px', top: y + 'px', right: 'auto', bottom: 'auto' });
+      };
+
+      try {
+        const p = JSON.parse(localStorage.getItem(KEY));
+        if (p) place(p.x, p.y);
+      } catch (e) {}
+
+      handle.addEventListener('pointerdown', e => {
+        const r = legend.getBoundingClientRect();
+        const dx = e.clientX - r.left, dy = e.clientY - r.top;
+        const x0 = e.clientX, y0 = e.clientY;
+        moved = false;
+        handle.setPointerCapture(e.pointerId);
+
+        const onMove = ev => {
+          if (Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 3) moved = true;
+          if (moved) place(ev.clientX - dx, ev.clientY - dy);
+        };
+        const onUp = () => {
+          handle.removeEventListener('pointermove', onMove);
+          if (moved) {
+            const r2 = legend.getBoundingClientRect();
+            try { localStorage.setItem(KEY, JSON.stringify({ x: r2.left, y: r2.top })); } catch (e) {}
+          }
+        };
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp, { once: true });
+      });
+
+      handle.addEventListener('click', e => {
+        if (moved) { e.stopImmediatePropagation(); moved = false; }
+      }, true);
+
+      return () => {
+        try { localStorage.removeItem(KEY); } catch (e) {}
+        place(8, 8);
+      };
+    }
 
     async function main() {
       const src = new URLSearchParams(location.search).get('src') || 'graph.ttl';
+      const resetLegendPosition = makeLegendDraggable(src);
       const resp = await fetch(src);
       if (!resp.ok) throw new Error('Impossible de charger ' + src);
       const { quads, prefixes } = await parseTurtle(await resp.text());
@@ -105,19 +182,20 @@
         const id = term.termType === 'BlankNode' ? '_:' + term.value : term.value;
         if (!seen.has(id)) {
           seen.add(id);
-          elements.push({ data: { id, label: term.termType === 'BlankNode' ? id : short(id),
-              kind: classes.has(term.value) ? 'class' : 'instance' } });
+          const label = term.termType === 'BlankNode' ? id : short(id);
+          elements.push({ data: { id, iri: id, ...labelData(label),
+            kind: classes.has(term.value) ? 'class' : 'instance' } });
         }
         return id;
       };
       const iriNode = iri => node({ termType: 'NamedNode', value: iri });
       const valueNode = label => {
         const id = 'value-' + (counter++);
-        elements.push({ data: { id, label, kind: 'literal' } });
+        elements.push({ data: { id, ...labelData(label), kind: 'literal' } });
         return id;
       };
       const edge = (source, target, label, kind) =>
-        elements.push({ data: { id: 'edge-' + (counter++), source, target, label, kind } });
+        elements.push({ data: { id: 'edge-' + (counter++), source, target, ...labelData(label, 11), kind } });
 
       classes.forEach(iriNode);
 
@@ -141,25 +219,42 @@
         elements,
         style: [
         { selector: 'node', style: {
-            'label': 'data(label)', 'shape': 'round-rectangle', 'width': nodeW, 'height': nodeH,
+            'label': 'data(short)', 'shape': 'round-rectangle', 'width': 'data(wShort)', 'height': 'data(hShort)',
             'font-family': 'Roboto, Segoe UI, sans-serif', 'font-size': 13, 'color': C.text,
             'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap', 'text-max-width': MAXW,
             'border-width': 1.5 } },
+        { selector: 'node.expanded', style: {
+            'label': 'data(full)', 'width': 'data(wFull)', 'height': 'data(hFull)', 'z-index': 999,
+            'text-wrap': 'wrap', 'text-max-width': FULL_MAXW } },
         { selector: 'node[kind = "class"]',    style: { 'background-color': C.red, 'border-color': '#5e1f1d',
             'color': '#fff', 'font-weight': 'bold' } },
         { selector: 'node[kind = "instance"]', style: { 'background-color': C.cyan, 'border-color': '#3a98ad',
             'color': '#0f2f36' } },
         { selector: 'node[kind = "literal"]',  style: { 'background-color': C.lavender, 'border-color': '#b9b2dd' } },
         { selector: 'edge', style: {
-            'label': 'data(label)', 'font-family': 'Roboto, Segoe UI, sans-serif', 'font-size': 11, 'color': C.text,
+            'label': 'data(short)', 'font-family': 'Roboto, Segoe UI, sans-serif', 'font-size': 11, 'color': C.text,
             'curve-style': 'bezier', 'width': 2, 'target-arrow-shape': 'triangle', 'text-rotation': 'autorotate',
             'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': 2 } },
+        { selector: 'edge.expanded', style: { 'label': 'data(full)', 'z-index': 999 } },
         { selector: 'edge[kind = "object"]',   style: { 'line-color': C.cyan, 'target-arrow-color': C.cyan } },
         { selector: 'edge[kind = "type"]',     style: { 'line-style': 'dashed', 'line-color': C.red, 'target-arrow-color': C.red } },
         { selector: 'edge[kind = "data"]',     style: { 'line-color': '#a59fc4', 'target-arrow-color': '#a59fc4' } },
         { selector: 'edge[kind = "subclass"]', style: { 'line-color': C.mint, 'target-arrow-color': C.mint, 'width': 3,
             'target-arrow-fill': 'hollow', 'arrow-scale': 1.4 } },
         ],
+      });
+
+      cy.on('mouseover', 'node, edge', e => e.target.addClass('expanded'));
+      cy.on('mouseout', 'node, edge', e => {
+        if (!e.target.hasClass('pinned')) e.target.removeClass('expanded');
+      });
+      cy.on('tap', 'node', e => {
+        const n = e.target;
+        n.toggleClass('pinned');
+        n.toggleClass('expanded', n.hasClass('pinned'));
+        const info = document.getElementById('info');
+        info.textContent = n.data('iri') || n.data('full');
+        info.style.display = 'block';
       });
 
       // Mémorisation des positions (par fichier .ttl)
@@ -187,6 +282,7 @@
       document.getElementById('fit').onclick = () => cy.fit(undefined, 30);
       document.getElementById('reset').onclick = () => {
         try { localStorage.removeItem(KEY); } catch (e) {}
+        resetLegendPosition();
         document.getElementById('layout').value = 'cose';
         runLayout('cose');
       };
