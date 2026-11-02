@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Graphe RDF</title>
+  <link rel="icon" href="data:,">
+  <script src="https://unpkg.com/n3@1/browser/n3.min.js"></script>
+  <script src="https://unpkg.com/cytoscape@3/dist/cytoscape.min.js"></script>
+  <style>
+    /* ===== Thème : tout se règle ici ===== */
+    :root {
+      --bg: #EAE8E0;           /* fond de page et du graphe */
+      --node: #B3C5B4;         /* remplissage des IRI et nœuds anonymes */
+      --literal: #B3C5B4;      /* remplissage des littéraux (identique = tout uni) */
+      --node-border: #7E9580;  /* contour des nœuds */
+      --line: #7B7B73;         /* flèches */
+      --accent: #C48362;       /* élément épinglé, bouton actif */
+      --sand: #DEC386;         /* boutons */
+      --ink: #2E302C;          /* texte */
+      --panel: rgba(255, 255, 255, .88);
+      --font: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    [hidden] { display: none !important; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--font); }
+    #graph { position: absolute; inset: 0; }
+    .panel { background: var(--panel); border-radius: 6px; box-shadow: 0 1px 3px rgba(0, 0, 0, .12); font-size: 12px; }
+    button, select { font: inherit; font-size: 12px; color: var(--ink); background: var(--sand);
+      border: 1px solid #c9ad6c; border-radius: 4px; padding: 3px 9px; cursor: pointer; }
+    button:hover, select:hover { filter: brightness(1.05); }
+    button[aria-pressed="true"] { background: var(--accent); border-color: #a96c4e; color: #fff; }
+    #toolbar { position: absolute; top: 8px; right: 8px; z-index: 10; display: flex; gap: 4px;
+      align-items: center; padding: 5px; flex-wrap: wrap; }
+    #editor { position: absolute; top: 8px; left: 8px; bottom: 8px; z-index: 20; box-sizing: border-box;
+      width: min(420px, calc(100% - 16px)); display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+    #ttl { flex: 1; resize: none; padding: 8px; tab-size: 2; white-space: pre; color: var(--ink);
+      font: 12px/1.45 Consolas, "Cascadia Mono", Menlo, monospace;
+      background: #fff; border: 1px solid #cfccc0; border-radius: 4px; }
+    .row { display: flex; gap: 6px; align-items: center; }
+    .hint { margin-left: auto; opacity: .6; }
+    #error { color: #8a3f22; background: #f6e7df; border-radius: 4px; padding: 6px 8px; overflow-wrap: anywhere; }
+    #error:empty { display: none; }
+    #legend { position: absolute; left: 8px; bottom: 8px; z-index: 10; padding: 8px 10px; line-height: 1.7;
+      max-width: min(360px, calc(100% - 16px)); max-height: 45%; overflow: auto; }
+    .legend-title { font-weight: 600; margin-top: 4px; }
+    .sym { display: inline-block; width: 18px; height: 12px; margin-right: 7px; vertical-align: middle;
+      box-sizing: border-box; background: var(--node); border: 1.5px solid var(--node-border); }
+    .sym.iri, .sym.blank { border-radius: 4px; }
+    .sym.blank { border-style: dashed; }
+    .sym.literal { background: var(--literal); }
+    .ns { overflow-wrap: anywhere; opacity: .8; }
+    #info { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); z-index: 10;
+      max-width: calc(100% - 32px); padding: 6px 10px; overflow-wrap: anywhere; user-select: text; }
+    #info:empty { display: none; }
+  </style>
+</head>
+<body>
+  <div id="graph"></div>
+
+  <div id="toolbar" class="panel">
+    <button id="toggle-editor" aria-pressed="false" title="Afficher ou masquer l’éditeur Turtle">Turtle</button>
+    <select id="layout" title="Disposition">
+      <option value="cose">Organique</option>
+      <option value="breadthfirst">Arbre</option>
+      <option value="circle">Cercle</option>
+      <option value="concentric">Concentrique</option>
+      <option value="grid">Grille</option>
+    </select>
+    <button id="fit">Recentrer</button>
+    <button id="relayout">Réorganiser</button>
+    <button id="toggle-legend" aria-pressed="true">Légende</button>
+  </div>
+
+  <aside id="editor" class="panel" hidden>
+    <textarea id="ttl" spellcheck="false" aria-label="Données RDF en Turtle"></textarea>
+    <div class="row">
+      <button id="render">Afficher</button>
+      <button id="copy">Copier le lien</button>
+      <span class="hint">Ctrl+Entrée</span>
+    </div>
+    <div id="error" role="alert"></div>
+  </aside>
+
+  <div id="legend" class="panel"></div>
+  <div id="info" class="panel" aria-live="polite"></div>
+
+  <!-- ===== Données par défaut : remplacez ce bloc pour embarquer votre graphe ===== -->
+  <script type="text/turtle" id="rdf-data">
+    @prefix ex:   <http://example.org/> .
+    @prefix foaf: <http://xmlns.com/foaf/0.1/> .
+    @prefix dc:   <http://purl.org/dc/elements/1.1/> .
+    @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+    ex:George_Orwell a foaf:Person ;
+      foaf:name "George Orwell" ;
+      foaf:made ex:1984 .
+
+    ex:1984 a dc:BibliographicResource ;
+      dc:title "Nineteen Eighty-Four"@en ;
+      dc:date "1949"^^xsd:gYear ;
+      dc:publisher [ foaf:name "Secker & Warburg" ] .
+  </script>
+
+  <script>
+  (() => {
+    'use strict';
+    const params = new URLSearchParams(location.search);
+    const $ = id => document.getElementById(id);
+    const textarea = $('ttl'), editor = $('editor'), errorBox = $('error');
+    const legend = $('legend'), info = $('info');
+
+    const css = getComputedStyle(document.documentElement);
+    const V = name => css.getPropertyValue(name).trim();
+    const FONT = V('--font');
+
+    const MAX = Math.max(4, parseInt(params.get('max'), 10) || 28);
+    const MAXW = 170, FULLW = 260, PAD = 24;
+    const LAYOUTS = ['cose', 'breadthfirst', 'circle', 'concentric', 'grid'];
+    let currentLayout = LAYOUTS.includes(params.get('layout')) ? params.get('layout') : 'cose';
+    let legendWanted = params.get('legend') !== '0';
+    if (params.get('ui') === '0') $('toolbar').hidden = true;
+
+    const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
+    const XSD = 'http://www.w3.org/2001/XMLSchema#';
+    const DEFAULT_NS = { rdf: RDF, rdfs: 'http://www.w3.org/2000/01/rdf-schema#',
+      owl: 'http://www.w3.org/2002/07/owl#', xsd: XSD };
+
+    // ---------- utilitaires ----------
+    const ctx = document.createElement('canvas').getContext('2d');
+    const measure = (text, size) => { ctx.font = `${size}px ${FONT}`; return ctx.measureText(text).width; };
+    const shorten = s => s.length > MAX ? s.slice(0, MAX - 1) + '…' : s;
+    const box = (full, size) => {
+      const short = shorten(full);
+      const ws = measure(short, size), wf = measure(full, size);
+      return {
+        full, short,
+        wShort: Math.min(ws, MAXW) + PAD,  hShort: Math.max(34, 18 * Math.ceil(ws / MAXW) + 16),
+        wFull:  Math.min(wf, FULLW) + PAD, hFull:  Math.max(34, 18 * Math.ceil(wf / FULLW) + 16)
+      };
+    };
+    const hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36); };
+    const dedent = s => {
+      const lines = s.replace(/\r/g, '').split('\n');
+      while (lines.length && !lines[0].trim()) lines.shift();
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+      const indent = Math.min(...lines.filter(l => l.trim()).map(l => l.match(/^[ \t]*/)[0].length));
+      return lines.map(l => l.slice(indent)).join('\n');
+    };
+    const showInfo = text => { info.textContent = text || ''; };
+    const setPressed = () => {
+      $('toggle-editor').setAttribute('aria-pressed', String(!editor.hidden));
+      $('toggle-legend').setAttribute('aria-pressed', String(legendWanted));
+    };
+    const parse = text => new Promise((resolve, reject) => {
+      const quads = [];
+      try {
+        new N3.Parser().parse(text, (err, quad, prefixes) => {
+          if (err) reject(err);
+          else if (quad) quads.push(quad);
+          else resolve({ quads, prefixes: prefixes || {} });
+        });
+      } catch (e) { reject(e); }
+    });
+
+    // ---------- rendu ----------
+    let cy = null, storageKey = '';
+
+    const save = () => {
+      if (!cy) return;
+      const pos = {};
+      cy.nodes().forEach(n => { pos[n.id()] = n.position(); });
+      try { localStorage.setItem(storageKey, JSON.stringify(pos)); } catch (e) {}
+    };
+    const runLayout = name => {
+      currentLayout = name;
+      cy.layout({ name, animate: false, fit: true, padding: 30, randomize: false,
+        nodeRepulsion: 9000, idealEdgeLength: 110, directed: true, spacingFactor: 1.25 }).run();
+      save();
+    };
+
+    function updateLegend(kinds, usedPrefixes, ns) {
+      legend.textContent = '';
+      const names = { iri: 'IRI', blank: 'Nœud anonyme', literal: 'Littéral' };
+      for (const k of ['iri', 'blank', 'literal']) {
+        if (!kinds.has(k)) continue;
+        const row = document.createElement('div');
+        const sym = document.createElement('span');
+        sym.className = 'sym ' + k;
+        row.append(sym, names[k]);
+        legend.append(row);
+      }
+      const prefixes = [...usedPrefixes].sort();
+      if (prefixes.length) {
+        const title = document.createElement('div');
+        title.className = 'legend-title';
+        title.textContent = 'Préfixes';
+        legend.append(title);
+        for (const p of prefixes) {
+          const row = document.createElement('div');
+          const name = document.createElement('b');
+          name.textContent = p + ': ';
+          const iri = document.createElement('span');
+          iri.className = 'ns';
+          iri.textContent = ns[p];
+          row.append(name, iri);
+          legend.append(row);
+        }
+      }
+      legend.hidden = !legendWanted || !legend.childElementCount;
+    }
+
+    async function render(text) {
+      errorBox.textContent = '';
+      let parsed;
+      try { parsed = await parse(text); }
+      catch (e) {
+        errorBox.textContent = 'Erreur Turtle : ' + e.message;
+        editor.hidden = false; setPressed();
+        return false;
+      }
+      const { quads, prefixes } = parsed;
+
+      const ns = { ...DEFAULT_NS };
+      for (const [p, v] of Object.entries(prefixes)) ns[p] = typeof v === 'string' ? v : v.value;
+      const nsList = Object.entries(ns).filter(([, base]) => base).sort((a, b) => b[1].length - a[1].length);
+      const usedPrefixes = new Set();
+      const qname = (iri, mark = true) => {
+        for (const [p, base] of nsList) {
+          if (iri.startsWith(base) && iri.length > base.length) {
+            if (mark) usedPrefixes.add(p);
+            return p + ':' + iri.slice(base.length);
+          }
+        }
+        return '<' + iri + '>';
+      };
+
+      const elements = [], seen = new Set(), blanks = new Map(), kinds = new Set();
+      let n = 0;
+      const termNode = t => {
+        if (t.termType === 'Literal') {
+          const id = 'lit' + (n++);
+          kinds.add('literal');
+          const dt = t.datatype ? t.datatype.value : XSD + 'string';
+          const label = t.value + (t.language ? ' @' + t.language : '');
+          const detail = JSON.stringify(t.value) + (t.language ? '@' + t.language : '^^' + qname(dt, false));
+          elements.push({ data: { id, kind: 'literal', info: 'Littéral ' + detail, ...box(label, 13) } });
+          return id;
+        }
+        const isBlank = t.termType === 'BlankNode';
+        const id = isBlank ? '_:' + t.value : t.value;
+        if (!seen.has(id)) {
+          seen.add(id);
+          kinds.add(isBlank ? 'blank' : 'iri');
+          if (isBlank) blanks.set(id, '_:b' + (blanks.size + 1));
+          const label = isBlank ? blanks.get(id) : qname(id);
+          elements.push({ data: { id, kind: isBlank ? 'blank' : 'iri',
+            info: isBlank ? 'Nœud anonyme ' + label : id, ...box(label, 13) } });
+        }
+        return id;
+      };
+      for (const q of quads) {
+        const s = termNode(q.subject), o = termNode(q.object), p = q.predicate.value;
+        elements.push({ data: { id: 'e' + (n++), source: s, target: o, info: p, ...box(qname(p), 11) } });
+      }
+
+      if (cy) cy.destroy();
+      cy = cytoscape({
+        container: $('graph'), elements,
+        autounselectify: true, boxSelectionEnabled: false, minZoom: 0.2, maxZoom: 4,
+        style: [
+          { selector: 'node', style: {
+              'shape': 'round-rectangle', 'background-color': V('--node'),
+              'border-width': 1.5, 'border-color': V('--node-border'),
+              'label': 'data(short)', 'color': V('--ink'), 'font-family': FONT, 'font-size': 13,
+              'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap', 'text-max-width': MAXW + 'px',
+              'width': 'data(wShort)', 'height': 'data(hShort)' } },
+          { selector: 'node[kind = "literal"]', style: { 'shape': 'rectangle', 'background-color': V('--literal') } },
+          { selector: 'node[kind = "blank"]', style: { 'border-style': 'dashed', 'border-width': 2 } },
+          { selector: 'node.expanded', style: {
+              'label': 'data(full)', 'width': 'data(wFull)', 'height': 'data(hFull)',
+              'text-max-width': FULLW + 'px', 'z-index': 999 } },
+          { selector: 'node.pinned', style: { 'border-color': V('--accent'), 'border-width': 3 } },
+          { selector: 'edge', style: {
+              'width': 1.5, 'curve-style': 'bezier', 'line-color': V('--line'),
+              'target-arrow-color': V('--line'), 'target-arrow-shape': 'triangle',
+              'label': 'data(short)', 'font-family': FONT, 'font-size': 11, 'color': V('--ink'),
+              'text-rotation': 'autorotate', 'text-background-color': V('--bg'),
+              'text-background-opacity': 1, 'text-background-padding': '2px' } },
+          { selector: 'edge.expanded', style: { 'label': 'data(full)', 'z-index': 999 } },
+          { selector: 'edge.pinned', style: { 'line-color': V('--accent'), 'target-arrow-color': V('--accent'), 'width': 2.5 } }
+        ]
+      });
+
+      // Survol : libellé complet. Clic : épingler + IRI complète en bas. Clic dans le vide : tout relâcher.
+      cy.on('mouseover', 'node, edge', e => e.target.addClass('expanded'));
+      cy.on('mouseout', 'node, edge', e => { if (!e.target.hasClass('pinned')) e.target.removeClass('expanded'); });
+      cy.on('tap', 'node, edge', e => {
+        const t = e.target, pin = !t.hasClass('pinned');
+        t.toggleClass('pinned', pin);
+        t.toggleClass('expanded', pin);
+        showInfo(pin ? t.data('info') : '');
+      });
+      cy.on('tap', e => {
+        if (e.target === cy) { cy.elements('.pinned').removeClass('pinned expanded'); showInfo(''); }
+      });
+      cy.on('dragfree', 'node', save);
+
+      storageKey = 'rdf-pos:' + hash(text);
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(storageKey)); } catch (e) {}
+      if (saved && cy.nodes().length && cy.nodes().every(nd => saved[nd.id()])) {
+        cy.layout({ name: 'preset', positions: nd => saved[nd.id()], fit: true, padding: 30 }).run();
+      } else {
+        runLayout(currentLayout);
+      }
+
+      updateLegend(kinds, usedPrefixes, ns);
+      showInfo(quads.length ? '' : 'Aucun triplet.');
+      return true;
+    }
+
+    // ---------- interface ----------
+    const apply = async () => {
+      const text = textarea.value;
+      if (await render(text)) {
+        try { history.replaceState(null, '', '#ttl=' + encodeURIComponent(text)); } catch (e) {}
+      }
+    };
+    $('render').onclick = apply;
+    textarea.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); apply(); }
+      else if (e.key === 'Tab') {
+        e.preventDefault();
+        textarea.setRangeText('  ', textarea.selectionStart, textarea.selectionEnd, 'end');
+      }
+    });
+    $('copy').onclick = async () => {
+      const url = location.href.split('#')[0] + '#ttl=' + encodeURIComponent(textarea.value);
+      try { await navigator.clipboard.writeText(url); showInfo('Lien copié dans le presse-papiers.'); }
+      catch (e) { showInfo(url); }
+    };
+    $('toggle-editor').onclick = () => {
+      editor.hidden = !editor.hidden; setPressed();
+      if (!editor.hidden) textarea.focus();
+    };
+    $('toggle-legend').onclick = () => {
+      legendWanted = !legendWanted; setPressed();
+      legend.hidden = !legendWanted || !legend.childElementCount;
+    };
+    $('layout').value = currentLayout;
+    $('layout').onchange = e => { if (cy) runLayout(e.target.value); };
+    $('fit').onclick = () => { if (cy) cy.fit(undefined, 30); };
+    $('relayout').onclick = () => {
+      if (!cy) return;
+      try { localStorage.removeItem(storageKey); } catch (e) {}
+      runLayout(currentLayout);
+    };
+    window.addEventListener('resize', () => { if (cy) { cy.resize(); cy.fit(undefined, 30); } });
+
+    // ---------- démarrage ----------
+    async function initialText() {
+      if (location.hash.startsWith('#ttl=')) return decodeURIComponent(location.hash.slice(5));
+      const src = params.get('src');
+      if (src) {
+        let resp;
+        try { resp = await fetch(src); }
+        catch (e) { throw new Error(`Impossible de charger « ${src} ». Avec un fichier local (file://), collez plutôt le Turtle dans la page.`); }
+        if (!resp.ok) throw new Error(`Impossible de charger « ${src} » (${resp.status}).`);
+        return resp.text();
+      }
+      const block = $('rdf-data');
+      return block ? dedent(block.textContent) : '';
+    }
+
+    (async () => {
+      let open = params.get('edit') === '1';
+      let text = '';
+      try { text = await initialText(); }
+      catch (e) { errorBox.textContent = e.message; open = true; }
+      textarea.value = text;
+      editor.hidden = !open; setPressed();
+
+      if (typeof N3 === 'undefined' || typeof cytoscape === 'undefined') {
+        errorBox.textContent = 'Les bibliothèques N3.js et Cytoscape.js n’ont pas pu être chargées (pas d’accès à Internet ?).';
+        editor.hidden = false; setPressed();
+        return;
+      }
+      if (text.trim()) await render(text);
+      else { editor.hidden = false; setPressed(); }
+    })();
+  })();
+  </script>
+</body>
+</html>
