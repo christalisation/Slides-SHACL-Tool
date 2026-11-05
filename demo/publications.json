@@ -1,0 +1,7 @@
+{
+  "publications": [
+    { "id": "p1", "title": "Linked Data for Research", "author": "Alice" },
+    { "id": "p2", "title": "Mapping CSV to RDF", "author": "Bob" },
+    { "id": "p3", "title": "Shapes in Practice", "author": "Alice" }
+  ]
+}

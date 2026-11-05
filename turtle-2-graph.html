@@ -1,38 +1,35 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Graphe RDF</title>
+  <title>RDF graph</title>
   <link rel="icon" href="data:,">
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <script src="https://unpkg.com/n3@1/browser/n3.min.js"></script>
   <script src="https://unpkg.com/cytoscape@3/dist/cytoscape.min.js"></script>
   <style>
-    /* ===== Thème : tout se règle ici ===== */
+    /* ===== Theme: everything can be tuned here ===== */
     :root {
-      --bg: #EAE8E0;           /* fond de page et du graphe */
-      --node: #B3C5B4;         /* remplissage des IRI et nœuds anonymes */
-      --literal: #B3C5B4;      /* remplissage des littéraux (identique = tout uni) */
-      --node-border: #7E9580;  /* contour des nœuds */
-      --line: #7B7B73;         /* flèches */
-      --accent: #C48362;       /* élément épinglé, bouton actif */
-      --sand: #DEC386;         /* boutons */
-      --ink: #2E302C;          /* texte */
+      --bg: #EAE8E0;           /* page and graph background */
+      --node: #B3C5B4;         /* fill of IRIs and blank nodes */
+      --literal: #B3C5B4;      /* fill of literals (same = uniform look) */
+      --node-border: #7E9580;  /* node outline */
+      --line: #7B7B73;         /* arrows */
+      --accent: #C48362;       /* pinned element, active button, divider hover */
+      --sand: #DEC386;         /* buttons */
+      --ink: #2E302C;          /* text */
+      --pane: #F5F4EF;         /* editor pane background */
       --panel: rgba(255, 255, 255, .88);
       --font: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
     [hidden] { display: none !important; }
-    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--font); }
-    #graph { position: absolute; inset: 0; }
-    .panel { background: var(--panel); border-radius: 6px; box-shadow: 0 1px 3px rgba(0, 0, 0, .12); font-size: 12px; }
-    button, select { font: inherit; font-size: 12px; color: var(--ink); background: var(--sand);
-      border: 1px solid #c9ad6c; border-radius: 4px; padding: 3px 9px; cursor: pointer; }
-    button:hover, select:hover { filter: brightness(1.05); }
-    button[aria-pressed="true"] { background: var(--accent); border-color: #a96c4e; color: #fff; }
-    #toolbar { position: absolute; top: 8px; right: 8px; z-index: 10; display: flex; gap: 4px;
-      align-items: center; padding: 5px; flex-wrap: wrap; }
-    #editor { position: absolute; top: 8px; left: 8px; bottom: 8px; z-index: 20; box-sizing: border-box;
-      width: min(420px, calc(100% - 16px)); display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--font); }
+    body { display: flex; }
+
+    /* Left pane: Turtle editor */
+    #editor { flex: 0 0 38%; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column;
+      gap: 6px; padding: 8px; background: var(--pane); font-size: 12px; }
     #ttl { flex: 1; resize: none; padding: 8px; tab-size: 2; white-space: pre; color: var(--ink);
       font: 12px/1.45 Consolas, "Cascadia Mono", Menlo, monospace;
       background: #fff; border: 1px solid #cfccc0; border-radius: 4px; }
@@ -40,6 +37,22 @@
     .hint { margin-left: auto; opacity: .6; }
     #error { color: #8a3f22; background: #f6e7df; border-radius: 4px; padding: 6px 8px; overflow-wrap: anywhere; }
     #error:empty { display: none; }
+
+    /* Draggable divider between the two panes */
+    #divider { flex: 0 0 7px; cursor: col-resize; position: relative; touch-action: none; background: var(--bg); }
+    #divider::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: #cfccc0; }
+    #divider:hover::after, #divider.dragging::after { left: 2px; width: 3px; background: var(--accent); }
+
+    /* Right pane: graph and its overlays */
+    #stage { flex: 1 1 auto; min-width: 0; position: relative; }
+    #graph { position: absolute; inset: 0; }
+    .panel { background: var(--panel); border-radius: 6px; box-shadow: 0 1px 3px rgba(0, 0, 0, .12); font-size: 12px; }
+    button, select { font: inherit; font-size: 12px; color: var(--ink); background: var(--sand);
+      border: 1px solid #c9ad6c; border-radius: 4px; padding: 3px 9px; cursor: pointer; }
+    button:hover, select:hover { filter: brightness(1.05); }
+    button[aria-pressed="true"] { background: var(--accent); border-color: #a96c4e; color: #fff; }
+    #toolbar { position: absolute; top: 8px; right: 8px; z-index: 10; display: flex; gap: 4px;
+      align-items: center; padding: 5px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 16px); }
     #legend { position: absolute; left: 8px; bottom: 8px; z-index: 10; padding: 8px 10px; line-height: 1.7;
       max-width: min(360px, calc(100% - 16px)); max-height: 45%; overflow: auto; }
     .legend-title { font-weight: 600; margin-top: 4px; }
@@ -55,36 +68,37 @@
   </style>
 </head>
 <body>
-  <div id="graph"></div>
-
-  <div id="toolbar" class="panel">
-    <button id="toggle-editor" aria-pressed="false" title="Afficher ou masquer l’éditeur Turtle">Turtle</button>
-    <select id="layout" title="Disposition">
-      <option value="cose">Organique</option>
-      <option value="breadthfirst">Arbre</option>
-      <option value="circle">Cercle</option>
-      <option value="concentric">Concentrique</option>
-      <option value="grid">Grille</option>
-    </select>
-    <button id="fit">Recentrer</button>
-    <button id="relayout">Réorganiser</button>
-    <button id="toggle-legend" aria-pressed="true">Légende</button>
-  </div>
-
-  <aside id="editor" class="panel" hidden>
-    <textarea id="ttl" spellcheck="false" aria-label="Données RDF en Turtle"></textarea>
+  <aside id="editor" hidden>
+    <textarea id="ttl" spellcheck="false" aria-label="RDF data in Turtle"></textarea>
     <div class="row">
-      <button id="render">Afficher</button>
-      <button id="copy">Copier le lien</button>
-      <span class="hint">Ctrl+Entrée</span>
+      <button id="render">Render</button>
+      <button id="copy">Copy link</button>
+      <span class="hint">Ctrl+Enter</span>
     </div>
     <div id="error" role="alert"></div>
   </aside>
+  <div id="divider" hidden title="Drag to resize · double-click to reset"></div>
 
-  <div id="legend" class="panel"></div>
-  <div id="info" class="panel" aria-live="polite"></div>
+  <main id="stage">
+    <div id="graph"></div>
+    <div id="toolbar" class="panel">
+      <button id="toggle-editor" aria-pressed="false" title="Show or hide the Turtle editor">Turtle</button>
+      <select id="layout" title="Layout">
+        <option value="cose">Force-directed</option>
+        <option value="breadthfirst">Tree</option>
+        <option value="circle">Circle</option>
+        <option value="concentric">Concentric</option>
+        <option value="grid">Grid</option>
+      </select>
+      <button id="fit">Fit</button>
+      <button id="relayout">Re-layout</button>
+      <button id="toggle-legend" aria-pressed="true">Legend</button>
+    </div>
+    <div id="legend" class="panel"></div>
+    <div id="info" class="panel" aria-live="polite"></div>
+  </main>
 
-  <!-- ===== Données par défaut : remplacez ce bloc pour embarquer votre graphe ===== -->
+  <!-- ===== Default data: replace this block to embed your own graph ===== -->
   <script type="text/turtle" id="rdf-data">
     @prefix ex:   <http://example.org/> .
     @prefix foaf: <http://xmlns.com/foaf/0.1/> .
@@ -104,10 +118,12 @@
   <script>
   (() => {
     'use strict';
+    if (window.Office) Office.onReady(() => {});
+
     const params = new URLSearchParams(location.search);
     const $ = id => document.getElementById(id);
-    const textarea = $('ttl'), editor = $('editor'), errorBox = $('error');
-    const legend = $('legend'), info = $('info');
+    const textarea = $('ttl'), editor = $('editor'), divider = $('divider'), stage = $('stage');
+    const errorBox = $('error'), legend = $('legend'), info = $('info');
 
     const css = getComputedStyle(document.documentElement);
     const V = name => css.getPropertyValue(name).trim();
@@ -125,7 +141,7 @@
     const DEFAULT_NS = { rdf: RDF, rdfs: 'http://www.w3.org/2000/01/rdf-schema#',
       owl: 'http://www.w3.org/2002/07/owl#', xsd: XSD };
 
-    // ---------- utilitaires ----------
+    // ---------- helpers ----------
     const ctx = document.createElement('canvas').getContext('2d');
     const measure = (text, size) => { ctx.font = `${size}px ${FONT}`; return ctx.measureText(text).width; };
     const shorten = s => s.length > MAX ? s.slice(0, MAX - 1) + '…' : s;
@@ -162,13 +178,63 @@
       } catch (e) { reject(e); }
     });
 
-    // ---------- rendu ----------
-    let cy = null, storageKey = '';
+    // ---------- split view ----------
+    const SPLIT_KEY = 'rdf-split-width';
+    const MIN_EDITOR = 200, MIN_GRAPH = 240;
+    const applySplit = px => {
+      const max = Math.max(MIN_EDITOR, window.innerWidth - MIN_GRAPH - 7);
+      const w = Math.round(Math.min(Math.max(px, MIN_EDITOR), max));
+      editor.style.flexBasis = w + 'px';
+      return w;
+    };
+    const defaultSplit = () => window.innerWidth * 0.38;
+    try {
+      const savedWidth = parseFloat(localStorage.getItem(SPLIT_KEY));
+      applySplit(savedWidth > 0 ? savedWidth : defaultSplit());
+    } catch (e) { applySplit(defaultSplit()); }
+
+    const setEditor = open => {
+      editor.hidden = !open;
+      divider.hidden = !open;
+      setPressed();
+    };
+
+    divider.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      divider.setPointerCapture(e.pointerId);
+      divider.classList.add('dragging');
+      const onMove = ev => applySplit(ev.clientX);
+      const onUp = () => {
+        divider.removeEventListener('pointermove', onMove);
+        divider.classList.remove('dragging');
+        try { localStorage.setItem(SPLIT_KEY, parseFloat(editor.style.flexBasis)); } catch (err) {}
+      };
+      divider.addEventListener('pointermove', onMove);
+      divider.addEventListener('pointerup', onUp, { once: true });
+    });
+    divider.addEventListener('dblclick', () => {
+      applySplit(defaultSplit());
+      try { localStorage.removeItem(SPLIT_KEY); } catch (e) {}
+    });
+    window.addEventListener('resize', () => {
+      if (!editor.hidden) applySplit(parseFloat(editor.style.flexBasis) || defaultSplit());
+    });
+
+    // ---------- rendering ----------
+    let cy = null, storageKey = '', fitTimer = null;
+
+    // Whenever the graph pane changes size (split toggled, divider dragged, window resized), refit.
+    new ResizeObserver(() => {
+      if (!cy) return;
+      cy.resize();
+      clearTimeout(fitTimer);
+      fitTimer = setTimeout(() => { if (cy) cy.fit(undefined, 30); }, 120);
+    }).observe(stage);
 
     const save = () => {
       if (!cy) return;
       const pos = {};
-      cy.nodes().forEach(n => { pos[n.id()] = n.position(); });
+      cy.nodes().forEach(nd => { pos[nd.id()] = nd.position(); });
       try { localStorage.setItem(storageKey, JSON.stringify(pos)); } catch (e) {}
     };
     const runLayout = name => {
@@ -180,7 +246,7 @@
 
     function updateLegend(kinds, usedPrefixes, ns) {
       legend.textContent = '';
-      const names = { iri: 'IRI', blank: 'Nœud anonyme', literal: 'Littéral' };
+      const names = { iri: 'IRI', blank: 'Blank node', literal: 'Literal' };
       for (const k of ['iri', 'blank', 'literal']) {
         if (!kinds.has(k)) continue;
         const row = document.createElement('div');
@@ -193,7 +259,7 @@
       if (prefixes.length) {
         const title = document.createElement('div');
         title.className = 'legend-title';
-        title.textContent = 'Préfixes';
+        title.textContent = 'Prefixes';
         legend.append(title);
         for (const p of prefixes) {
           const row = document.createElement('div');
@@ -214,8 +280,8 @@
       let parsed;
       try { parsed = await parse(text); }
       catch (e) {
-        errorBox.textContent = 'Erreur Turtle : ' + e.message;
-        editor.hidden = false; setPressed();
+        errorBox.textContent = 'Turtle error: ' + e.message;
+        setEditor(true);
         return false;
       }
       const { quads, prefixes } = parsed;
@@ -243,7 +309,7 @@
           const dt = t.datatype ? t.datatype.value : XSD + 'string';
           const label = t.value + (t.language ? ' @' + t.language : '');
           const detail = JSON.stringify(t.value) + (t.language ? '@' + t.language : '^^' + qname(dt, false));
-          elements.push({ data: { id, kind: 'literal', info: 'Littéral ' + detail, ...box(label, 13) } });
+          elements.push({ data: { id, kind: 'literal', info: 'Literal ' + detail, ...box(label, 13) } });
           return id;
         }
         const isBlank = t.termType === 'BlankNode';
@@ -254,7 +320,7 @@
           if (isBlank) blanks.set(id, '_:b' + (blanks.size + 1));
           const label = isBlank ? blanks.get(id) : qname(id);
           elements.push({ data: { id, kind: isBlank ? 'blank' : 'iri',
-            info: isBlank ? 'Nœud anonyme ' + label : id, ...box(label, 13) } });
+            info: isBlank ? 'Blank node ' + label : id, ...box(label, 13) } });
         }
         return id;
       };
@@ -291,7 +357,7 @@
         ]
       });
 
-      // Survol : libellé complet. Clic : épingler + IRI complète en bas. Clic dans le vide : tout relâcher.
+      // Hover: full label. Click: pin + full IRI at the bottom. Click on empty space: release all.
       cy.on('mouseover', 'node, edge', e => e.target.addClass('expanded'));
       cy.on('mouseout', 'node, edge', e => { if (!e.target.hasClass('pinned')) e.target.removeClass('expanded'); });
       cy.on('tap', 'node, edge', e => {
@@ -315,7 +381,7 @@
       }
 
       updateLegend(kinds, usedPrefixes, ns);
-      showInfo(quads.length ? '' : 'Aucun triplet.');
+      showInfo(quads.length ? '' : 'No triples.');
       return true;
     }
 
@@ -336,11 +402,11 @@
     });
     $('copy').onclick = async () => {
       const url = location.href.split('#')[0] + '#ttl=' + encodeURIComponent(textarea.value);
-      try { await navigator.clipboard.writeText(url); showInfo('Lien copié dans le presse-papiers.'); }
+      try { await navigator.clipboard.writeText(url); showInfo('Link copied to clipboard.'); }
       catch (e) { showInfo(url); }
     };
     $('toggle-editor').onclick = () => {
-      editor.hidden = !editor.hidden; setPressed();
+      setEditor(editor.hidden);
       if (!editor.hidden) textarea.focus();
     };
     $('toggle-legend').onclick = () => {
@@ -355,17 +421,16 @@
       try { localStorage.removeItem(storageKey); } catch (e) {}
       runLayout(currentLayout);
     };
-    window.addEventListener('resize', () => { if (cy) { cy.resize(); cy.fit(undefined, 30); } });
 
-    // ---------- démarrage ----------
+    // ---------- start-up ----------
     async function initialText() {
       if (location.hash.startsWith('#ttl=')) return decodeURIComponent(location.hash.slice(5));
       const src = params.get('src');
       if (src) {
         let resp;
         try { resp = await fetch(src); }
-        catch (e) { throw new Error(`Impossible de charger « ${src} ». Avec un fichier local (file://), collez plutôt le Turtle dans la page.`); }
-        if (!resp.ok) throw new Error(`Impossible de charger « ${src} » (${resp.status}).`);
+        catch (e) { throw new Error(`Could not load "${src}". With a local file (file://), paste the Turtle into the page instead.`); }
+        if (!resp.ok) throw new Error(`Could not load "${src}" (${resp.status}).`);
         return resp.text();
       }
       const block = $('rdf-data');
@@ -378,15 +443,15 @@
       try { text = await initialText(); }
       catch (e) { errorBox.textContent = e.message; open = true; }
       textarea.value = text;
-      editor.hidden = !open; setPressed();
+      setEditor(open);
 
       if (typeof N3 === 'undefined' || typeof cytoscape === 'undefined') {
-        errorBox.textContent = 'Les bibliothèques N3.js et Cytoscape.js n’ont pas pu être chargées (pas d’accès à Internet ?).';
-        editor.hidden = false; setPressed();
+        errorBox.textContent = 'Could not load N3.js and Cytoscape.js (no Internet connection?).';
+        setEditor(true);
         return;
       }
       if (text.trim()) await render(text);
-      else { editor.hidden = false; setPressed(); }
+      else setEditor(true);
     })();
   })();
   </script>
